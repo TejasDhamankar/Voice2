@@ -1,0 +1,9 @@
+# AdityaSir =    mongodb+srv://aditya:adityaaditya@cluster0.u9yyv.mongodb.net/voice?retryWrites=true&w=majority&appName=Cluster0
+
+
+
+# dhamankartejas14_db_user
+# dcsKk0hI1XSz6qAz    
+
+
+ELEVENLABS_WEBHOOK_SECRET=wsec_a8ddd2e31802fede0db792163637dbeb76fa77d0aff3e2632e9ef2984a734a6d
