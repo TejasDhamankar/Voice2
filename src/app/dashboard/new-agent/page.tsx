@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { useForm } from "react-hook-form";
@@ -8,7 +8,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useAuth } from "@/contexts/AuthContext";
 import { DashboardHeader } from "@/components/dashboard/header";
-import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { motion } from "framer-motion";
 
 // UI Components
@@ -16,25 +15,32 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { cn } from "@/lib/utils";
-import { VariableTextarea } from "@/components/ui/variable-textarea";
 
 // Icons
 import {
     Search, ArrowLeft, PlayCircle, PauseCircle, Bot, UserRoundCheck, HelpCircle, Clock, Lightbulb, Sparkles, Mic,
     Settings, Volume2, Wand2, User, Globe, CalendarCheck, Calendar, CheckCircle, Upload, FileText,
-    Link as LinkIcon, BookOpen, Trash2, Plus, Calculator, Search as SearchIcon, Mail, Wrench
+    Link as LinkIcon, Trash2, Plus, Calculator, Search as SearchIcon, Mail, Wrench, Loader2
 } from "lucide-react";
 import { Label } from "@radix-ui/react-label";
 
+
+// --- Base URL for API calls ---
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+const fetcher = (url: string) => fetch(`${API_BASE_URL}${url}`).then(res => {
+    if (!res.ok) {
+        throw new Error('Failed to fetch data');
+    }
+    return res.json();
+});
 
 const agentSchema = z.object({
     name: z.string().min(3, "Name must be at least 3 characters"),
@@ -83,21 +89,20 @@ const languages = [
     { id: "hi", name: "Hindi" }, { id: "ja", name: "Japanese" }, { id: "ko", name: "Korean" }, { id: "zh", name: "Chinese" }
 ];
 
-const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 export default function NewAgent() {
     const router = useRouter();
     const { user } = useAuth();
-    const { data, error, isLoading } = useSWR<{ voices: { id: string, name: string, tags: string, demo: string }[] }>("/api/voices", fetcher);
+    const { data: voicesData, error: voicesError, isLoading: voicesLoading } = useSWR<{ voices: { id: string, name: string, tags: string, demo: string }[] }>(user ? "/api/voices" : null, fetcher);
 
     const [creatingAgent, setCreatingAgent] = useState(false);
     const [voiceSearch, setVoiceSearch] = useState("");
     const [playingVoice, setPlayingVoice] = useState<string | null>(null);
-    const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
     const [newDocumentType, setNewDocumentType] = useState<'file' | 'url' | 'text'>('text');
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const allVoices = data?.voices || [];
+    const allVoices = voicesData?.voices || [];
 
     const form = useForm<z.infer<typeof agentSchema>>({
         resolver: zodResolver(agentSchema),
@@ -123,14 +128,15 @@ export default function NewAgent() {
 
     const handlePlayVoice = (voiceId: string, demoUrl: string) => {
         if (playingVoice === voiceId) {
-            audioRef?.pause();
+            audioRef.current?.pause();
             setPlayingVoice(null);
         } else {
-            audioRef?.pause();
+            audioRef.current?.pause();
             const audio = new Audio(demoUrl);
             audio.onended = () => setPlayingVoice(null);
+            audio.onerror = () => { console.error("Error playing audio."); setPlayingVoice(null); };
             audio.play().catch(err => console.error("Error playing audio:", err));
-            setAudioRef(audio);
+            audioRef.current = audio;
             setPlayingVoice(voiceId);
         }
     };
@@ -182,60 +188,62 @@ export default function NewAgent() {
 
     const onSubmit = async (payload: z.infer<typeof agentSchema>) => {
         try {
-          setCreatingAgent(true);
-      
-          // Transform to camelCase
-          const agentData = {
-            name: payload.name,
-            description: payload.description,
-            voiceId: payload.voice_id,       // ✅ camelCase
-            firstMessage: payload.first_message, // ✅ camelCase
-            systemPrompt: payload.system_prompt, // ✅ camelCase
-            templateId: payload.template_id,  // optional
-            llmModel: payload.llm_model,      // optional
-            temperature: payload.temperature, // optional
-            language: payload.language,       // optional
-            maxDurationSeconds: payload.max_duration_seconds, // optional
-            tools: payload.tools,             // optional
-            knowledgeDocuments: (payload.knowledge_documents || []).map(doc => ({
-              type: doc.type,
-              name: doc.name,
-              content: doc.content,
-              url: doc.url,
-            })),
-          };
-      
-          const formData = new FormData();
-          formData.append('agentData', JSON.stringify(agentData));
-      
-          // Append any files separately
-          (payload.knowledge_documents || []).forEach((doc, index) => {
-            if (doc.type === 'file' && doc.file) {
-              formData.append(`file_${index}`, doc.file, doc.name);
+            setCreatingAgent(true);
+        
+            const selectedVoice = allVoices.find(v => v.id === payload.voice_id);
+            const voiceName = selectedVoice ? selectedVoice.name : "Unknown Voice";
+
+            const agentData = {
+                name: payload.name,
+                description: payload.description,
+                voiceId: payload.voice_id,
+                voiceName: voiceName,
+                firstMessage: payload.first_message,
+                systemPrompt: payload.system_prompt,
+                templateId: payload.template_id,
+                llmModel: payload.llm_model,
+                temperature: payload.temperature,
+                language: payload.language,
+                maxDurationSeconds: payload.max_duration_seconds,
+                tools: payload.tools,
+                knowledgeDocuments: (payload.knowledge_documents || []).map(doc => ({
+                    type: doc.type,
+                    name: doc.name,
+                    content: doc.content,
+                    url: doc.url,
+                })),
+            };
+        
+            const formData = new FormData();
+            formData.append('agentData', JSON.stringify(agentData));
+        
+            (payload.knowledge_documents || []).forEach((doc, index) => {
+                if (doc.type === 'file' && doc.file) {
+                    formData.append(`file_${index}`, doc.file, doc.name);
+                }
+            });
+        
+            const response = await fetch(`${API_BASE_URL}/api/createAgent`, {
+                method: "POST",
+                body: formData,
+            });
+        
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.message || "Failed to create agent");
             }
-          });
-      
-          const response = await fetch("/api/createAgent", {
-            method: "POST",
-            body: formData,
-          });
-      
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.message || "Failed to create agent");
-          }
-      
-          const result = await response.json();
-          console.log("Agent created successfully:", result);
-          router.push("/dashboard/agents");
-      
-        } catch (error) {
-          console.error("Error creating agent:", error);
+        
+            const result = await response.json();
+            console.log("Agent created successfully:", result);
+            router.push("/dashboard/agents");
+        
+        } catch (error: any) {
+            console.error("Error creating agent:", error);
+            alert(`Error: ${error.message}`);
         } finally {
-          setCreatingAgent(false);
+            setCreatingAgent(false);
         }
-      };
-      
+    };
 
     const templatesByCategory = agentTemplates.reduce((acc, template) => {
         if (!acc[template.category]) acc[template.category] = [];
@@ -243,14 +251,8 @@ export default function NewAgent() {
         return acc;
     }, {} as { [key: string]: typeof agentTemplates });
 
-    const containerVariant = {
-        hidden: { opacity: 0 },
-        visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
-    };
-    const fadeInUpVariant = {
-        hidden: { opacity: 0, y: 20 },
-        visible: { opacity: 1, y: 0, transition: { duration: 0.4 } }
-    };
+    const containerVariant = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.1 } } };
+    const fadeInUpVariant = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4 } } };
 
     return (
         <div className="min-h-screen text-foreground flex">
@@ -264,7 +266,7 @@ export default function NewAgent() {
                                     <ArrowLeft className="h-4 w-4 mr-1" /> Back to Agents
                                 </Button>
                                 <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-[#F3FFD4]">Create AI Voice Agent</h1>
-                                <p className="text-[#A7A7A7] mt-2 text-lg">Design your conversational AI assistant with advanced capabilities.</p>
+                                <p className="text-[#A7A7A7] mt-2 text-lg">Design your conversational AI assistant.</p>
                             </div>
                         </div>
 
@@ -321,18 +323,20 @@ export default function NewAgent() {
                                                             <FormField control={form.control} name="name" render={({ field }) => (
                                                                 <FormItem>
                                                                     <FormLabel className="text-[#A7A7A7]">Agent Name</FormLabel>
-                                                                    <FormControl><Input placeholder="e.g., Sales Assistant" {...field} /></FormControl>
+                                                                    <FormControl><Input placeholder="e.g., Sales Assistant" {...field} className="bg-[#222] border-[#333]"/></FormControl>
                                                                     <FormMessage />
                                                                 </FormItem>
                                                             )} />
                                                             <FormField control={form.control} name="voice_id" render={({ field }) => (
                                                                 <FormItem>
                                                                     <FormLabel className="text-[#A7A7A7]">Voice Selection</FormLabel>
-                                                                    <Input placeholder="Search voices..." value={voiceSearch} onChange={(e) => setVoiceSearch(e.target.value)} />
+                                                                    <Input placeholder="Search voices..." value={voiceSearch} onChange={(e) => setVoiceSearch(e.target.value)} className="bg-[#222] border-[#333] mb-3" />
                                                                     <FormControl>
-                                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto p-1">
-                                                                            {isLoading ? <p className="text-[#A7A7A7]">Loading voices...</p> : allVoices.filter(v => v.name.toLowerCase().includes(voiceSearch.toLowerCase())).map(voice => (
-                                                                                <div key={voice.id} onClick={() => field.onChange(voice.id)} className={cn("border rounded-lg p-3 cursor-pointer flex justify-between items-center border-[#333333] hover:bg-white/5", field.value === voice.id && "ring-2 ring-[#A7B3AC] border-[#A7B3AC]")}>
+                                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto p-1 border border-[#333] rounded-md">
+                                                                            {voicesLoading ? <div className="p-4 text-center col-span-full text-gray-400"><Loader2 className="h-5 w-5 animate-spin inline mr-2"/>Loading voices...</div> 
+                                                                            : voicesError ? <div className="p-4 text-center col-span-full text-red-400">Error loading voices.</div>
+                                                                            : allVoices.filter(v => v.name.toLowerCase().includes(voiceSearch.toLowerCase())).map(voice => (
+                                                                                <div key={voice.id} onClick={() => field.onChange(voice.id)} className={cn("border rounded-lg p-3 cursor-pointer flex justify-between items-center border-[#333333] bg-[#1f1f1f] hover:bg-white/5", field.value === voice.id && "ring-2 ring-[#A7B3AC] border-[#A7B3AC]")}>
                                                                                     <div><p className="font-medium text-[#F3FFD4]">{voice.name}</p><p className="text-xs text-[#A7A7A7]">{voice.tags}</p></div>
                                                                                     <Button type="button" variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handlePlayVoice(voice.id, voice.demo); }}>
                                                                                         {playingVoice === voice.id ? <PauseCircle className="h-5 w-5 text-[#A7B3AC]" /> : <PlayCircle className="h-5 w-5 text-[#A7A7A7]" />}
@@ -354,14 +358,14 @@ export default function NewAgent() {
                                                             <FormField control={form.control} name="system_prompt" render={({ field }) => (
                                                                 <FormItem>
                                                                     <FormLabel className="text-[#A7A7A7]">System Prompt</FormLabel>
-                                                                    <FormControl><Textarea rows={8} placeholder="You are a friendly AI assistant..." {...field} /></FormControl>
+                                                                    <FormControl><Textarea rows={8} placeholder="You are a friendly AI assistant..." {...field} className="bg-[#222] border-[#333]" /></FormControl>
                                                                     <FormMessage />
                                                                 </FormItem>
                                                             )} />
                                                             <FormField control={form.control} name="first_message" render={({ field }) => (
                                                                 <FormItem>
                                                                     <FormLabel className="text-[#A7A7A7]">First Message</FormLabel>
-                                                                    <FormControl><Textarea rows={3} placeholder="Hello! How can I help you today?" {...field} /></FormControl>
+                                                                    <FormControl><Textarea rows={3} placeholder="Hello! How can I help you today?" {...field} className="bg-[#222] border-[#333]" /></FormControl>
                                                                     <FormMessage />
                                                                 </FormItem>
                                                             )} />
@@ -377,8 +381,8 @@ export default function NewAgent() {
                                                                 <p className="text-sm text-[#A7A7A7]/80 mb-4">Provide information via text, URLs, or documents.</p>
                                                                 <div className="flex items-center gap-2 mb-4">
                                                                     <Select value={newDocumentType} onValueChange={(value: 'file' | 'url' | 'text') => setNewDocumentType(value)}>
-                                                                        <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-                                                                        <SelectContent>
+                                                                        <SelectTrigger className="w-48 bg-[#222] border-[#333]"><SelectValue /></SelectTrigger>
+                                                                        <SelectContent className="bg-[#1a1a1a] border-[#333]">
                                                                             <SelectItem value="text"><div className="flex items-center gap-2"><FileText className="h-4 w-4" /> Text</div></SelectItem>
                                                                             <SelectItem value="url"><div className="flex items-center gap-2"><LinkIcon className="h-4 w-4" /> URL</div></SelectItem>
                                                                             <SelectItem value="file"><div className="flex items-center gap-2"><Upload className="h-4 w-4" /> File</div></SelectItem>
@@ -390,8 +394,8 @@ export default function NewAgent() {
                                                                 <div className="space-y-3">{knowledgeDocuments.map((doc, index) => (
                                                                     <div key={index} className="border border-[#333333] rounded-lg p-3 space-y-2 bg-[#111111]/50">
                                                                         <div className="flex justify-between items-center"><p className="font-medium text-sm text-[#F3FFD4]">{doc.name}</p><Button type="button" variant="ghost" size="icon" onClick={() => removeKnowledgeDocument(index)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div>
-                                                                        {doc.type === 'url' && <Input value={doc.url || ''} onChange={(e) => updateKnowledgeDocument(index, 'url', e.target.value)} placeholder="https://example.com" />}
-                                                                        {doc.type === 'text' && <Textarea value={doc.content || ''} onChange={(e) => updateKnowledgeDocument(index, 'content', e.target.value)} placeholder="Paste text here..." />}
+                                                                        {doc.type === 'url' && <Input value={doc.url || ''} onChange={(e) => updateKnowledgeDocument(index, 'url', e.target.value)} placeholder="https://example.com" className="bg-[#222] border-[#333]"/>}
+                                                                        {doc.type === 'text' && <Textarea value={doc.content || ''} onChange={(e) => updateKnowledgeDocument(index, 'content', e.target.value)} placeholder="Paste text here..." className="bg-[#222] border-[#333]"/>}
                                                                     </div>
                                                                 ))}</div>
                                                             </div>
@@ -421,8 +425,8 @@ export default function NewAgent() {
                                                                 <FormItem>
                                                                     <FormLabel className="text-[#A7A7A7]">Language Model</FormLabel>
                                                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                                        <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                                                                        <SelectContent>{llmModels.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent>
+                                                                        <FormControl><SelectTrigger className="bg-[#222] border-[#333]"><SelectValue /></SelectTrigger></FormControl>
+                                                                        <SelectContent className="bg-[#1a1a1a] border-[#333]">{llmModels.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent>
                                                                     </Select>
                                                                 </FormItem>
                                                             )} />
@@ -436,14 +440,14 @@ export default function NewAgent() {
                                                                 <FormItem>
                                                                     <FormLabel className="text-[#A7A7A7]">Primary Language</FormLabel>
                                                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                                        <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                                                                        <SelectContent>{languages.map(l => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}</SelectContent>
+                                                                        <FormControl><SelectTrigger className="bg-[#222] border-[#333]"><SelectValue /></SelectTrigger></FormControl>
+                                                                        <SelectContent className="bg-[#1a1a1a] border-[#333]">{languages.map(l => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}</SelectContent>
                                                                     </Select>
                                                                 </FormItem>
                                                             )} />
                                                             <FormField control={form.control} name="max_duration_seconds" render={({ field }) => (
                                                                 <FormItem>
-                                                                    <FormLabel className="text-[#A7A7A7]">Max Call Duration: {Math.floor(maxDuration / 60)} minutes</FormLabel>
+                                                                    <FormLabel className="text-[#A7A7A7]">Max Call Duration: {Math.floor((field.value || 1800) / 60)} minutes</FormLabel>
                                                                     <FormControl><Slider min={60} max={7200} step={60} value={[field.value || 1800]} onValueChange={(v) => field.onChange(v[0])} /></FormControl>
                                                                 </FormItem>
                                                             )} />
@@ -454,13 +458,14 @@ export default function NewAgent() {
                                         </Tabs>
                                     </motion.div>
                                     
-                                    <motion.div variants={fadeInUpVariant} className="flex justify-end space-x-4">
+                                    <motion.div variants={fadeInUpVariant} className="flex justify-end space-x-4 pt-4 border-t border-[#333333]">
                                         <Button type="button" variant="outline" className="border-[#333333] hover:bg-white/5 text-[#A7A7A7] hover:text-[#F3FFD4]" onClick={() => router.push('/dashboard/agents')}>Cancel</Button>
-                                        <Button type="submit" disabled={creatingAgent} className="gap-2 min-w-[160px] bg-[#A7B3AC] text-[#111111] hover:bg-[#A7B3AC]/90 font-bold">
-                                            {creatingAgent ? (<><motion.div animate={{ rotate: 360 }} 
-                                            transition={{ duration: 1, repeat: Infinity, ease: "linear" }} 
-                                            className="h-4 w-4 border-2 border-[#111111]/20 border-t-[#111111] rounded-full" />
-                                                Creating Agent...</>) : (<><Sparkles className="h-4 w-4" />Create Voice Agent</>)}
+                                        <Button type="submit" disabled={creatingAgent || voicesLoading} className="gap-2 min-w-[160px] bg-[#A7B3AC] text-[#111111] hover:bg-[#A7B3AC]/90 font-bold disabled:opacity-70">
+                                            {creatingAgent ? (
+                                                <><Loader2 className="h-4 w-4 animate-spin"/> Creating...</>
+                                            ) : (
+                                                <><Sparkles className="h-4 w-4" />Create Voice Agent</>
+                                            )}
                                         </Button>
                                     </motion.div>
                                 </form>
@@ -472,3 +477,4 @@ export default function NewAgent() {
         </div>
     );
 }
+
