@@ -2,6 +2,7 @@ import mongoose, { Document, Schema } from "mongoose";
 
 // Interface defining the Call document structure
 export interface ICall extends Document {
+  _id: mongoose.Types.ObjectId; // Explicitly define _id for type safety
   userId: mongoose.Types.ObjectId; // Reference to the user who owns the call
   agentId?: mongoose.Types.ObjectId; // Reference to your internal Agent model (optional if only using elevenLabsAgentId)
   elevenLabsAgentId: string; // The specific agent ID from ElevenLabs used for this call
