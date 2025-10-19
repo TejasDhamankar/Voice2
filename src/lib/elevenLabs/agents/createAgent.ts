@@ -57,7 +57,7 @@ export async function createAgent(agentData: AnyObj) {
         },
         tts: {
           model_id: ttsModel,
-          voice_id: agentData.voice_id,
+          voice_id: agentData.voiceId,
           stability: typeof agentData.voiceStability === "number" ? agentData.voiceStability : 0.5,
           similarity_boost: typeof agentData.voiceSimilarityBoost === "number" ? agentData.voiceSimilarityBoost : 0.8,
         },

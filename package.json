@@ -45,6 +45,7 @@
     "date-fns": "^4.1.0",
     "dayjs": "^1.11.18",
     "dotenv": "^17.2.3",
+    "elevenlabs": "^1.59.0",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.11.0",
     "jsonwebtoken": "^9.0.2",

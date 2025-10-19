@@ -1,32 +1,35 @@
-import { NextRequest, NextResponse } from "next/server";
+// /app/api/signed-url/route.ts
+import { NextResponse } from "next/server";
 
 export async function GET() {
   try {
-    const agentId = process.env.AGENT_ID;
-    if (!agentId) {
-      return NextResponse.json({ error: "Missing AGENT_ID" }, { status: 500 });
+    const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY!;
+    const AGENT_ID = process.env.AGENT_ID!;
+
+    if (!ELEVENLABS_API_KEY || !AGENT_ID) {
+      return NextResponse.json({ error: "Missing environment variables" }, { status: 500 });
     }
 
     const response = await fetch(
-      `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${agentId}`,
+      `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${AGENT_ID}`,
       {
-        method: "GET",
         headers: {
-          "xi-api-key": process.env.ELEVENLABS_API_KEY!,
+          "xi-api-key": ELEVENLABS_API_KEY,
         },
       }
     );
 
     if (!response.ok) {
-      const errorData = await response.text();
-      console.error("Error fetching signed URL:", errorData);
-      return NextResponse.json({ error: errorData }, { status: response.status });
+      const errorText = await response.text();
+      console.error("ElevenLabs error:", errorText);
+      return NextResponse.json({ error: errorText }, { status: response.status });
     }
 
     const data = await response.json();
     return NextResponse.json({ signedUrl: data.signed_url });
   } catch (err) {
-    console.error("Error generating signed URL:", err);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    console.error("Server error:", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+    
