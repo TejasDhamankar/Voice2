@@ -112,7 +112,7 @@ export default function CallsPage() {
     // Set default agent if available after loading
     useEffect(() => {
         if (!form.getValues('agentId') && agents.length > 0) {
-            form.setValue('agentId', agents[0].agent_id);
+            form.setValue('agentId', agents[0].agent_id); // Use agent_id
         }
     }, [agents, form]);
 
@@ -458,7 +458,7 @@ export default function CallsPage() {
                                                                         ) : agents.length > 0 ? (
                                                                             agents.map(agent => (
                                                                                 <SelectItem key={agent.agent_id} value={agent.agent_id}>
-                                                                                    {agent.name}
+                                                                                    {agent.name} 
                                                                                 </SelectItem>
                                                                             ))
                                                                         ) : (

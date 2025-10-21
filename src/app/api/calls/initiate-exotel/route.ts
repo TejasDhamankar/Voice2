@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     await connectDB();
 
     // 1. Find the Agent (to get agent details if needed later)
-    const agent = await Agent.findOne({ userId, agentId }); // Use the ELEVENLABS agentId here
+    const agent = await Agent.findOne({ userId, agentId }); // Corrected: Query by agentId field
     if (!agent) {
       return NextResponse.json({ message: 'Agent not found' }, { status: 404 });
     }
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     const newCall = new Call({
       userId,
       agentId: agent._id, // Store your DB reference if you have one
-      elevenLabsAgentId: agent.agentId, // Store the ElevenLabs agent ID
+      elevenLabsAgentId: agent.agentId, // Corrected: Use agent.agentId from the found agent
       agentName: agent.name,
       contactName,
       phoneNumber,
@@ -51,33 +51,41 @@ export async function POST(request: NextRequest) {
     const EXOTEL_API_TOKEN = process.env.EXOTEL_API_TOKEN!;
     const EXOTEL_CALLER_ID = process.env.EXOTEL_CALLER_ID!; // Your verified Exotel number
 
-    // *** THIS IS CRITICAL ***
-    // The URL Exotel will call when events happen (ringing, answered, hangup)
-    // Make sure this is publicly accessible (use ngrok during development)
-    const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/exotel/webhook`; 
+    // Log environment variables (masking sensitive parts)
+    console.log(`Exotel Config: Account SID: ${EXOTEL_ACCOUNT_SID}, Caller ID: ${EXOTEL_CALLER_ID}`);
+    console.log(`Exotel API Key (first 5 chars): ${EXOTEL_API_KEY.substring(0, 5)}...`);
+    console.log(`Exotel API Token (first 5 chars): ${EXOTEL_API_TOKEN.substring(0, 5)}...`);
+
+    // Define the two separate webhook URLs
+    const connectUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/exotel/connect`;
+    const statusCallbackUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/exotel/webhook`;
 
     const exotelPayload = {
-      From: EXOTEL_CALLER_ID, // Your Exotel virtual number
-      To: phoneNumber,         // The number to call
       CallerId: EXOTEL_CALLER_ID, // Can often be the same as From
-      Url: webhookUrl,         // Exotel hits this URL on answer
-      StatusCallback: webhookUrl, // Exotel hits this URL for status updates (optional but recommended)
-      StatusCallbackMethod: "POST",
-      Method: "POST",
+      // This URL is hit with a POST request when the call is answered. It must return ExoML.
+      Url: connectUrl,
+      // Method is inferred by the <Connect> applet being POST
+      // This URL is hit with status updates (ringing, completed, etc.).
+      StatusCallback: statusCallbackUrl,
+      StatusCallbackMethod: "GET", // The method for the 'StatusCallback' URL
       // Pass your internal call ID and agent ID to the webhook
       CustomField: JSON.stringify({ 
           internalCallId: newCall._id.toString(),
-          elevenLabsAgentId: agent.agentId // Pass the ElevenLabs Agent ID
+          elevenLabsAgentId: agent.agentId // Corrected: Use agent.agentId from the found agent
       }), 
       // Add other Exotel options if needed (recording etc.)
     };
 
     // 4. Make the API Call to Exotel to initiate the call
     // Replace with your actual Exotel API call logic (using fetch or an SDK)
-    const exotelApiUrl = `https://api.exotel.com/v1/Accounts/${EXOTEL_ACCOUNT_SID}/Calls.json`;
+    const exotelApiUrl = `https://api.exotel.com/v1/Accounts/${EXOTEL_ACCOUNT_SID}/Calls/connect.json?From=${EXOTEL_CALLER_ID}&To=${phoneNumber}`;
     const authHeader = `Basic ${Buffer.from(`${EXOTEL_API_KEY}:${EXOTEL_API_TOKEN}`).toString('base64')}`;
     
+    console.log("Exotel API URL:", exotelApiUrl);
+    console.log("Authorization Header:", authHeader.substring(0, 30) + "..."); // Masking most of the token
     console.log("Initiating Exotel Call with payload:", exotelPayload);
+    const requestBody = new URLSearchParams(exotelPayload as any).toString();
+    console.log("Exotel Request Body (form-urlencoded):", requestBody);
 
     const exotelResponse = await fetch(exotelApiUrl, {
         method: 'POST',
@@ -85,7 +93,7 @@ export async function POST(request: NextRequest) {
             'Authorization': authHeader,
             'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: new URLSearchParams(exotelPayload as any).toString(), // Exotel often uses form-urlencoded
+        body: requestBody,
     });
 
     if (!exotelResponse.ok) {
@@ -93,6 +101,8 @@ export async function POST(request: NextRequest) {
         console.error("Exotel API Error:", errorText);
         newCall.status = 'failed';
         newCall.failureReason = `Exotel initiation failed: ${errorText}`;
+        console.error(`Exotel Response Status: ${exotelResponse.status}`);
+        console.error(`Exotel Response Status Text: ${exotelResponse.statusText}`);
         await newCall.save();
         return NextResponse.json({ message: `Exotel error: ${errorText}` }, { status: exotelResponse.status });
     }

@@ -7,6 +7,7 @@ export interface ICall extends Document {
   agentId?: mongoose.Types.ObjectId; // Reference to your internal Agent model (optional if only using elevenLabsAgentId)
   elevenLabsAgentId: string; // The specific agent ID from ElevenLabs used for this call
   exotelCallSid?: string; // Unique identifier for the call provided by Exotel
+  agentName?: string; // Name of the agent for display purposes
   contactId?: mongoose.Types.ObjectId; // Reference to a Contact model (optional)
   campaignId?: mongoose.Types.ObjectId; // Reference to a Campaign model (optional)
   phoneNumber: string; // The phone number called
@@ -57,6 +58,7 @@ const CallSchema = new Schema<ICall>(
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     agentId: { type: Schema.Types.ObjectId, ref: "Agent" }, // Your internal agent link
     elevenLabsAgentId: { type: String, required: true, index: true }, // The ID used to get the signed URL
+    agentName: { type: String },
     exotelCallSid: { type: String, index: true, unique: true, sparse: true }, // Exotel's unique call ID
     contactId: { type: Schema.Types.ObjectId, ref: "Contact" },
     campaignId: { type: Schema.Types.ObjectId, ref: "Campaign", index: true },
@@ -73,7 +75,6 @@ const CallSchema = new Schema<ICall>(
         "no-answer", "canceled" 
       ],
       default: "queued",
-      index: true,
     },
     failureReason: { type: String },
     elevenLabsSignedUrl: { type: String }, // The temporary WebSocket URL

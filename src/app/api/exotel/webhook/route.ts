@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) { // Changed to GET
             updatedStatus = 'ended';
         } else if (streamStatus === 'failed' || callStatus === 'failed') {
             updatedStatus = 'failed';
-            call.failureReason = streamError || call.failureReason || 'Exotel reported failure';
+            call.failureReason = streamError || call.failureReason || `Exotel reported status: ${callStatus}`;
         } else if (streamStatus === 'cancelled') {
              updatedStatus = call.status === 'connected' ? 'ended' : 'failed'; // If connected then cancelled, likely user hangup. If not, failed setup.
              call.failureReason = call.failureReason || `Stream cancelled by ${streamDisconnectedBy || 'unknown'}`;
@@ -99,37 +99,9 @@ export async function GET(request: NextRequest) { // Changed to GET
             updatedStatus = 'busy';
         } else if (callStatus === 'no-answer') {
             updatedStatus = 'no-answer';
-        } else if (callStatus === 'answered' || callStatus === 'in-progress') {
-             // If we get 'answered' but don't have a URL yet, maybe fetch it here?
-             // BUT the Passthru might not trigger exactly on answer if placed *after* a Stream applet.
-             if (!call.elevenLabsSignedUrl && call.status !== 'connected' && elevenLabsAgentId) {
-                  console.log(`Call ${internalCallId} answered/in-progress, attempting to fetch Signed URL *now*...`);
-                  // *** ATTENTION: This fetch might be too late if Passthru runs *after* Stream fails/ends ***
-                  // *** It's better if the Stream applet itself gets the URL somehow ***
-                  const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY!;
-                  const url = `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${elevenLabsAgentId}`;
-                  try {
-                      const elResponse = await fetch(url, { headers: { 'xi-api-key': ELEVENLABS_API_KEY } });
-                      if (elResponse.ok) {
-                          const data = await elResponse.json();
-                           if (data.signed_url) {
-                              console.log(`Fetched Signed URL for ${internalCallId} during webhook processing.`);
-                              call.elevenLabsSignedUrl = data.signed_url;
-                              call.status = 'connected'; // Optimistically set status
-                              if (!call.callStartTime) call.callStartTime = new Date();
-                              needsSave = true; 
-                              // We CANNOT send instructions back to Exotel via this GET response per docs.
-                              // How does Exotel's Stream applet GET this URL? This is the missing piece.
-                           } else { throw new Error("ElevenLabs response missing signed_url"); }
-                      } else { throw new Error(`ElevenLabs API error: ${elResponse.status}`); }
-                  } catch (fetchErr: any) {
-                      console.error(`Failed to get Signed URL during webhook for ${internalCallId}:`, fetchErr.message);
-                      updatedStatus = 'failed';
-                      call.failureReason = `Failed to get agent stream URL: ${fetchErr.message}`;
-                  }
-             } else if (call.status === 'ringing' || call.status === 'initiating') {
-                 // Update status if it just got answered
-                 updatedStatus = 'answered'; // Or maybe 'in-progress'
+        } else if (callStatus === 'answered' || callStatus === 'in-progress') { // Status before 'connected'
+             if (call.status === 'ringing' || call.status === 'initiating') {
+                 updatedStatus = 'answered';
              }
         } else if (callStatus === 'ringing') {
              if (call.status === 'initiating' || call.status === 'queued') {
@@ -161,17 +133,13 @@ export async function GET(request: NextRequest) { // Changed to GET
         }
 
         // --- Respond to Exotel ---
-        // Since we cannot send ExoML back in response to GET Passthru according to docs,
+        // This webhook only receives status updates and does not control the call flow.
         // we just return 200 OK to acknowledge receipt.
         console.log(`Webhook for call ${internalCallId} processed. Responding 200 OK.`);
-        // Exotel documentation for Sync Passthru mentions 200 or 302. Let's use 200.
         return new Response("OK", { status: 200 }); 
-        // If the Passthru *was* Async, an empty XML <Response/> might be better.
-        // return new Response('<Response></Response>', { headers: { 'Content-Type': 'application/xml; charset=utf-8' }, status: 200 });
 
     } catch (error: any) { 
         console.error(`Webhook CRITICAL error for call ${internalCallId || callSid || 'UNKNOWN'}:`, error);
-        // Even on internal errors, respond 200 OK to prevent Exotel retries if Passthru is Sync
-        return new Response("Internal Server Error", { status: 500 }); // Or maybe 200 OK
+        return new Response("Internal Server Error", { status: 500 });
     }
 }
