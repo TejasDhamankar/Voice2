@@ -41,11 +41,12 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-        const { internalCallId, elevenLabsAgentId } = JSON.parse(customFieldString);
+        const { internalCallId, elevenLabsAgentId, elevenlabsWebhookUrl } = JSON.parse(customFieldString);
 
         if (!internalCallId || !elevenLabsAgentId) {
             throw new Error("Invalid CustomField data. Missing internalCallId or elevenLabsAgentId.");
         }
+        console.log(`Using ElevenLabs webhook URL: ${elevenlabsWebhookUrl}`);
 
         const call = await Call.findById(internalCallId);
         if (!call) {
@@ -59,11 +60,16 @@ export async function POST(request: NextRequest) {
         }
 
         // Fetch the signed URL from ElevenLabs
-        const url = `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${elevenLabsAgentId}`;
-        const elResponse = await fetch(url, { headers: { 'xi-api-key': ELEVENLABS_API_KEY } });
+        const url = `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url`;
+        const elResponse = await fetch(url, { 
+            method: 'POST',
+            headers: { 'xi-api-key': ELEVENLABS_API_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agent_id: elevenLabsAgentId, webhook_url: elevenlabsWebhookUrl })
+        });
 
         if (!elResponse.ok) {
-            throw new Error(`ElevenLabs API error: ${elResponse.status}`);
+            const errorBody = await elResponse.text();
+            throw new Error(`ElevenLabs API error: ${elResponse.status} - ${errorBody}`);
         }
 
         const data = await elResponse.json();

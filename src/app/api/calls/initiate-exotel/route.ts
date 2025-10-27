@@ -59,6 +59,7 @@ export async function POST(request: NextRequest) {
     // Define the two separate webhook URLs
     const connectUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/exotel/connect`;
     const statusCallbackUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/exotel/webhook`;
+    const elevenlabsWebhookUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/elevenlabs`;
 
     const exotelPayload = {
       CallerId: EXOTEL_CALLER_ID, // Can often be the same as From
@@ -71,7 +72,8 @@ export async function POST(request: NextRequest) {
       // Pass your internal call ID and agent ID to the webhook
       CustomField: JSON.stringify({ 
           internalCallId: newCall._id.toString(),
-          elevenLabsAgentId: agent.agentId // Corrected: Use agent.agentId from the found agent
+          elevenLabsAgentId: agent.agentId, // Corrected: Use agent.agentId from the found agent
+          elevenlabsWebhookUrl: elevenlabsWebhookUrl
       }), 
       // Add other Exotel options if needed (recording etc.)
     };
