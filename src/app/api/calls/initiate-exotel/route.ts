@@ -74,6 +74,7 @@ export async function POST(request: NextRequest) {
     const elevenlabsWebhookUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/elevenlabs`;
 
     const exotelPayload = {
+      To: phoneNumber, // <-- ADD THIS LINE
       CallerId: EXOTEL_CALLER_ID, // Can often be the same as From
       // This URL is hit with a POST request when the call is answered. It must return ExoML.
       Url: connectUrl,
@@ -92,7 +93,8 @@ export async function POST(request: NextRequest) {
 
     // 4. Make the API Call to Exotel to initiate the call
     // Replace with your actual Exotel API call logic (using fetch or an SDK)
-    const exotelApiUrl = `https://api.exotel.com/v1/Accounts/${EXOTEL_ACCOUNT_SID}/Calls/connect.json?From=${EXOTEL_CALLER_ID}&To=${phoneNumber}`;
+    // UPDATED: Removed 'To' from the URL, as it's now in the body. 'From' is also optional here as CallerId is present.
+    const exotelApiUrl = `https://api.exotel.com/v1/Accounts/${EXOTEL_ACCOUNT_SID}/Calls/connect.json?From=${EXOTEL_CALLER_ID}`;
     const authHeader = `Basic ${Buffer.from(`${EXOTEL_API_KEY}:${EXOTEL_API_TOKEN}`).toString('base64')}`;
     
     console.log("Exotel API URL:", exotelApiUrl);
