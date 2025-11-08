@@ -51,9 +51,14 @@ export async function POST(request: NextRequest) {
     const EXOTEL_API_TOKEN = process.env.EXOTEL_API_TOKEN!;
     const EXOTEL_CALLER_ID = process.env.EXOTEL_CALLER_ID!; // Your verified Exotel number
 
-    // Normalize numbers for comparison (remove country code, etc. if needed)
-    const normalizedCallerId = EXOTEL_CALLER_ID.replace(/^\+91/, '');
-    const normalizedPhoneNumber = phoneNumber.replace(/^\+91/, '');
+    // Robust normalization function to get the last 10 digits of a phone number
+    const getTenDigitNumber = (num: string) => {
+        const digitsOnly = num.replace(/\D/g, '');
+        return digitsOnly.slice(-10);
+    };
+
+    const normalizedCallerId = getTenDigitNumber(EXOTEL_CALLER_ID);
+    const normalizedPhoneNumber = getTenDigitNumber(phoneNumber);
     if (normalizedCallerId === normalizedPhoneNumber) {
       return NextResponse.json({ message: 'You cannot initiate a call to the system\'s own caller ID.' }, { status: 400 });
     }

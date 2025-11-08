@@ -17,7 +17,7 @@ type UrlParams = {
  */
 export async function GET(request: NextRequest, { params }: UrlParams) {
   try {
-    const userData = await getUserFromRequest(request);
+    const userData = await getUserFromRequest(request); 
     if (!userData) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
