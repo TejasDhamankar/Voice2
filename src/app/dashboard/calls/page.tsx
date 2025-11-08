@@ -127,7 +127,8 @@ export default function CallsPage() {
 
     const pollCallStatus = useCallback(async (callId: string) => {
         try {
-            const res = await fetch(`${API_BASE_URL}/api/calls/${callId}/status`);
+            // UPDATED: Point to the new consolidated endpoint for status (GET request)
+            const res = await fetch(`${API_BASE_URL}/api/calls/${callId}`);
             if (!res.ok) {
                 console.error("Polling failed:", res.status);
                 if (res.status === 404) {
@@ -201,13 +202,16 @@ export default function CallsPage() {
             const result = await response.json();
             console.log("Call initiation request successful:", result);
 
-            if (!result.callId) { throw new Error("Backend did not return a Call ID."); }
+            if (!result.callId) {
+                throw new Error(result.message || "Backend did not return a valid Call ID.");
+            }
 
             setCurrentCallId(result.callId);
             setLiveCallStatus(result.initialStatus || 'ringing'); 
             
-            const intervalId = setInterval(() => pollCallStatus(result.callId), 3000); 
-            setPollingIntervalId(intervalId);
+            // Start polling only if we have a valid callId
+            const newIntervalId = setInterval(() => pollCallStatus(result.callId), 3000); 
+            setPollingIntervalId(newIntervalId);
 
             await refreshCalls(); 
 
@@ -215,6 +219,7 @@ export default function CallsPage() {
             console.error("Error making call:", error);
             const errorMsg = error instanceof Error ? error.message : 'Unknown error';
             alert(`Error initiating call: ${errorMsg}`);
+            setMakingCall(false); // Ensure button is re-enabled on error
              setLiveCallStatus(`Error: ${errorMsg}`);
             stopPolling(); 
         } finally {
@@ -241,8 +246,8 @@ export default function CallsPage() {
          
          if (callIdToHangup) {
              try {
-                // UPDATED: Calls the new hangup endpoint
-                const res = await fetch(`${API_BASE_URL}/api/calls/${callIdToHangup}/hangup`, { method: 'POST' });
+                // UPDATED: Point to the new consolidated endpoint for hangup (POST request)
+                const res = await fetch(`${API_BASE_URL}/api/calls/${callIdToHangup}`, { method: 'POST' });
                 if (!res.ok) {
                      const errorData = await res.json().catch(() => ({ message: 'Hangup request failed' }));
                      console.error("Failed to request hangup via backend:", errorData.message);

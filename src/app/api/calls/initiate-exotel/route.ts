@@ -51,6 +51,13 @@ export async function POST(request: NextRequest) {
     const EXOTEL_API_TOKEN = process.env.EXOTEL_API_TOKEN!;
     const EXOTEL_CALLER_ID = process.env.EXOTEL_CALLER_ID!; // Your verified Exotel number
 
+    // Normalize numbers for comparison (remove country code, etc. if needed)
+    const normalizedCallerId = EXOTEL_CALLER_ID.replace(/^\+91/, '');
+    const normalizedPhoneNumber = phoneNumber.replace(/^\+91/, '');
+    if (normalizedCallerId === normalizedPhoneNumber) {
+      return NextResponse.json({ message: 'You cannot initiate a call to the system\'s own caller ID.' }, { status: 400 });
+    }
+
     // Log environment variables (masking sensitive parts)
     console.log(`Exotel Config: Account SID: ${EXOTEL_ACCOUNT_SID}, Caller ID: ${EXOTEL_CALLER_ID}`);
     console.log(`Exotel API Key (first 5 chars): ${EXOTEL_API_KEY.substring(0, 5)}...`);
@@ -101,12 +108,23 @@ export async function POST(request: NextRequest) {
     if (!exotelResponse.ok) {
         const errorText = await exotelResponse.text();
         console.error("Exotel API Error:", errorText);
+
+        let failureReason = `Exotel initiation failed: ${errorText}`;
+        let clientMessage = `Error initiating call. Status: ${exotelResponse.status}`;
+
+        // Check for specific TRAI/NDNC error
+        if (exotelResponse.status === 403 && errorText.includes("TRAI NDNC")) {
+            failureReason = "Call blocked by TRAI/NDNC regulations. The recipient number is likely on the Do Not Call list.";
+            clientMessage = "This call cannot be completed due to TRAI/NDNC regulations. The number may be on the Do Not Call list.";
+        }
+
         newCall.status = 'failed';
-        newCall.failureReason = `Exotel initiation failed: ${errorText}`;
+        newCall.failureReason = failureReason;
         console.error(`Exotel Response Status: ${exotelResponse.status}`);
         console.error(`Exotel Response Status Text: ${exotelResponse.statusText}`);
         await newCall.save();
-        return NextResponse.json({ message: `Exotel error: ${errorText}` }, { status: exotelResponse.status });
+        // Return a more structured error to the client
+        return NextResponse.json({ message: clientMessage, details: errorText }, { status: exotelResponse.status });
     }
 
     const exotelResult = await exotelResponse.json();
